@@ -22,12 +22,20 @@ A folder containing:
 Usage
 -----
 python fraa_reproducible_analysis.py --input "ED50 Values.xlsx" --outdir fraa_reproducible_output
+python fraa_reproducible_analysis.py  # opens a file picker
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+except ImportError:
+    tk = None
+    filedialog = None
 
 import numpy as np
 import openpyxl
@@ -607,18 +615,55 @@ The resulting approximate standard error on log10(EC50) was then back-transforme
     (outdir / "detailed_legends.txt").write_text(legend_text, encoding="utf-8")
 
 
+def choose_input_workbook() -> Path:
+    """Open a native file picker for the Excel workbook."""
+    if tk is None or filedialog is None:
+        raise SystemExit("No --input provided, and tkinter is unavailable for the file picker.")
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askopenfilename(
+            title="Select the ELISA workbook",
+            filetypes=[
+                ("Excel workbooks", "*.xlsx *.xlsm *.xls"),
+                ("All files", "*.*"),
+            ],
+        )
+    finally:
+        root.destroy()
+
+    if not selected:
+        raise SystemExit("No input workbook selected.")
+
+    return Path(selected)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Reproduce FRAA/blocked ELISA EC50 analyses from the original workbook."
     )
-    parser.add_argument("--input", required=True, help="Path to the Excel workbook, e.g. 'ED50 Values.xlsx'")
-    parser.add_argument("--outdir", default="fraa_reproducible_output", help="Output directory")
+    parser.add_argument(
+        "--input",
+        help="Path to the Excel workbook, e.g. 'ED50 Values.xlsx'. If omitted, a file picker opens.",
+    )
+    parser.add_argument(
+        "--outdir",
+        help="Output directory. If omitted while using the file picker, outputs go next to the workbook.",
+    )
     args = parser.parse_args()
 
-    outdir = Path(args.outdir)
+    input_path = Path(args.input) if args.input else choose_input_workbook()
+    if args.outdir:
+        outdir = Path(args.outdir)
+    elif args.input:
+        outdir = Path("fraa_reproducible_output")
+    else:
+        outdir = input_path.with_name(f"{input_path.stem}_output")
     outdir.mkdir(parents=True, exist_ok=True)
 
-    df = load_workbook_data(args.input)
+    df = load_workbook_data(input_path)
     df = compute_derived_metrics(df)
 
     save_basic_data_tables(df, outdir)
@@ -628,6 +673,7 @@ def main() -> None:
     plot_exploratory_figures(df, outdir)
     write_legends(outdir)
 
+    print(f"Input workbook: {input_path.resolve()}")
     print(f"Done. Outputs written to: {outdir.resolve()}")
 
 
